@@ -1,0 +1,116 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+TOKEN = os.getenv("MTM5NTA4MTE2NDg2MzMwNzg2Ng.GBn_Gd.XgOnnycUy1I_7xMDKPHDjCvRXGs14L2rLf14lE")
+GUILD_ID = int(os.getenv("1265766875137314816"))
+WELCOME_CHANNEL_ID = int(os.getenv("1394886742011678931"))
+MOD_LOG_CHANNEL_ID = int(os.getenv("1395079320484974733"))
+
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
+tree = bot.tree
+
+muted_role_name = "Muted"
+warns = {}
+
+# Utility function to log actions
+async def log_action(bot, guild, message):
+    log_channel = guild.get_channel(1395079320484974733)
+    if log_channel:
+        await log_channel.send(embed=discord.Embed(description=message, color=discord.Color.orange()))
+
+# Ensure muted role exists
+async def ensure_muted_role(guild):
+    role = discord.utils.get(guild.roles, name=muted_role_name)
+    if not role:
+        role = await guild.create_role(name=muted_role_name, permissions=discord.Permissions(send_messages=False))
+        for channel in guild.text_channels:
+            await channel.set_permissions(role, send_messages=False)
+    return role
+
+# On Ready
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+    try:
+        synced = await tree.sync(guild=discord.Object(id=1265766875137314816))
+        print(f"Synced {len(synced)} slash commands.")
+    except Exception as e:
+        print("Error syncing commands:", e)
+
+# Welcome message when user joins
+@bot.event
+async def on_member_join(member):
+    guild = member.guild
+    welcome_channel = guild.get_channel(1394886742011678931)
+
+    welcome_message = f"""
+👋 Welcome to **STEP**, {member.mention}!
+
+🚀 We're excited to have you join our bot development community.
+Here’s what you can do:
+• Browse our bots
+• Open a ticket to purchase services
+• Read the rules and get verified
+• Hang out with the dev team!
+
+Let us know how we can help you build your dream bot. 🤖
+– **The STEP Team**
+    """
+
+    if welcome_channel:
+        await welcome_channel.send(welcome_message)
+
+    await log_action(bot, guild, f"✅ {member.mention} joined the server.")
+
+@bot.event
+async def on_member_remove(member):
+    await log_action(bot, member.guild, f"❌ {member} left or was removed from the server.")
+
+@bot.event
+async def on_message_delete(message):
+    if message.guild:
+        await log_action(bot, message.guild, f"🗑️ Message deleted in {message.channel.mention} by {message.author}: `{message.content}`")
+
+@bot.event
+async def on_message_edit(before, after):
+    if before.guild and before.content != after.content:
+        await log_action(bot, before.guild, f"✏️ Message edited in {before.channel.mention} by {before.author}:\n**Before:** {before.content}\n**After:** {after.content}")
+
+# Slash Commands
+
+@tree.command(name="mute", description="Mute a user", guild=discord.Object(id=GUILD_ID))
+@app_commands.describe(user="User to mute", reason="Reason for muting")
+async def mute(interaction: discord.Interaction, user: discord.Member, reason: str = "No reason provided."):
+    role = await ensure_muted_role(interaction.guild)
+    await user.add_roles(role)
+    await interaction.response.send_message(f"🔇 {user.mention} has been muted. Reason: {reason}", ephemeral=True)
+    await log_action(bot, interaction.guild, f"🔇 {user.mention} muted by {interaction.user.mention}. Reason: {reason}")
+
+@tree.command(name="unmute", description="Unmute a user", guild=discord.Object(id=GUILD_ID))
+async def unmute(interaction: discord.Interaction, user: discord.Member):
+    role = discord.utils.get(interaction.guild.roles, name=muted_role_name)
+    await user.remove_roles(role)
+    await interaction.response.send_message(f"🔊 {user.mention} has been unmuted.", ephemeral=True)
+    await log_action(bot, interaction.guild, f"🔊 {user.mention} unmuted by {interaction.user.mention}.")
+
+@tree.command(name="warn", description="Warn a user", guild=discord.Object(id=GUILD_ID))
+async def warn(interaction: discord.Interaction, user: discord.Member, reason: str):
+    warns.setdefault(user.id, []).append(reason)
+    await interaction.response.send_message(f"⚠️ {user.mention} has been warned. Reason: {reason}", ephemeral=True)
+    await log_action(bot, interaction.guild, f"⚠️ {user.mention} warned by {interaction.user.mention}. Reason: {reason}")
+
+@tree.command(name="warnings", description="View a user's warnings", guild=discord.Object(id=GUILD_ID))
+async def warnings(interaction: discord.Interaction, user: discord.Member):
+    user_warns = warns.get(user.id, [])
+    if not user_warns:
+        await interaction.response.send_message(f"✅ {user.mention} has no warnings.", ephemeral=True)
+    else:
+        formatted = "\n".join([f"{i+1}. {reason}" for i, reason in enumerate(user_warns)])
+        await interaction.response.send_message(f"⚠️ Warnings for {user.mention}:\n{formatted}", ephemeral=True)
+
+bot.run(TOKEN)
